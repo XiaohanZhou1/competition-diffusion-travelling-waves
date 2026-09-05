@@ -29,7 +29,7 @@ function plot_contour_surface()
     % ============================================================
 
     % -------- parameter scan --------
-    D_list = linspace(0.1, 10, 31);
+    D_list = linspace(0.1, 5, 31);
 
     % Include gamma < 0.01 so the special large-D/small-gamma branch is used.
     gamma_list = unique([ ...
@@ -41,18 +41,18 @@ function plot_contour_surface()
     % -------- numerical options --------
     opts = struct();
 
-    opts.delta = 1e-3;
+    opts.delta = 1e-4;
     opts.a1    = 0.3;
     opts.A     = 1.0;
 
     opts.Xmax = 250;
-    opts.Nx   = 500;
+    opts.Nx   = 900;
 
     opts.tEnd  = 180;
-    opts.NtOut = 280;
+    opts.NtOut = 360;
 
-    opts.gap = 80;
-    opts.wIC = 1.0;
+    opts.gap = 60;
+    opts.wIC = 0.01;
 
     opts.eta_u = 0.01;
     opts.eta_v = 0.01;
@@ -68,7 +68,7 @@ function plot_contour_surface()
 
     opts.RelTol  = 1e-5;
     opts.AbsTol  = 1e-7;
-    opts.MaxStep = 1.0;
+    opts.MaxStep = 0.5;
 
     opts.verbose = false;
 
@@ -298,19 +298,26 @@ function plot_contour_surface()
     end
 
     %% ============================================================
-    %  CONTOUR PLOT
+    %  CONTOUR AND SURFACE PLOTS
     % ============================================================
 
     c_plot = fill_nan_for_plot(c_mat);
 
     dc_fill = 0.1;
     levels_fill = -0.5:dc_fill:3;
+    levels_line = levels_fill;
+    c_surf = c_plot;
 
-    figure;
+    figure('Color', 'w', 'Position', [100 100 560 430]);
+
     contourf(DD, GG, c_plot, levels_fill, 'LineColor', 'none');
-    colorbar;
     clim([-0.5 3]);
     hold on;
+    contour(DD, GG, c_plot, levels_line, ...
+        'LineColor', [0.88 0.88 0.88], ...
+        'LineStyle', '--', ...
+        'LineWidth', 0.35);
+    colorbar;
 
     cmin_plot = min(c_plot(:), [], 'omitnan');
     cmax_plot = max(c_plot(:), [], 'omitnan');
@@ -321,30 +328,28 @@ function plot_contour_surface()
 
     xlabel('$D$', 'Interpreter', 'latex');
     ylabel('$\gamma$', 'Interpreter', 'latex');
-    title('Contour plot of signed wave speed $c(D,\gamma)$', 'Interpreter', 'latex');
+    xlim([min(D_list), max(D_list)]);
+    ylim([0, max(gamma_list)]);
     box on;
-    grid off;
+    set(gca, 'Layer', 'top');
 
-    %% ============================================================
-    %  SURFACE PLOT
-    % ============================================================
+    figure('Color', 'w', 'Position', [700 100 560 430]);
 
-    figure;
-    surf(DD, GG, c_mat, 'EdgeColor', 'none');
-    colorbar;
+    surf(DD, GG, c_surf, 'EdgeColor', 'none');
     clim([-0.5 3]);
+    colorbar;
+    shading interp;
 
     xlabel('$D$', 'Interpreter', 'latex');
     ylabel('$\gamma$', 'Interpreter', 'latex');
     zlabel('$c$', 'Interpreter', 'latex');
 
-    view(135, 30);
+    view(140, 26);
 
     xlim([min(D_list), max(D_list)]);
     ylim([0, max(gamma_list)]);
-    zlim([-0.5 3]);
-
     box on;
+    grid on;
 
     fprintf('\nDone.\n');
 
@@ -355,18 +360,18 @@ end
 % ========================================================================
 function out = run_one_case_ode15s(D, gamma, opts)
 
-    delta = pick(opts, 'delta', 1e-3);
+    delta = pick(opts, 'delta', 1e-4);
     a1    = pick(opts, 'a1', 0.1);
     A     = pick(opts, 'A', 1.0);
 
     Xmax = pick(opts, 'Xmax', 250);
-    Nx   = pick(opts, 'Nx', 500);
+    Nx   = pick(opts, 'Nx', 900);
 
     tEnd  = pick(opts, 'tEnd', 180);
-    NtOut = pick(opts, 'NtOut', 280);
+    NtOut = pick(opts, 'NtOut', 360);
 
-    gap = pick(opts, 'gap', 80);
-    wIC = pick(opts, 'wIC', 1.0);
+    gap = pick(opts, 'gap', 60);
+    wIC = pick(opts, 'wIC', 0.01);
 
     active_tol_equal = pick(opts, 'active_tol_equal', 1e-10);
     overlap_tol      = pick(opts, 'overlap_tol', 1e-8);
@@ -379,7 +384,7 @@ function out = run_one_case_ode15s(D, gamma, opts)
 
     RelTol  = pick(opts, 'RelTol', 1e-5);
     AbsTol  = pick(opts, 'AbsTol', 1e-7);
-    MaxStep = pick(opts, 'MaxStep', 1.0);
+    MaxStep = pick(opts, 'MaxStep', 0.5);
 
     use_median_speed_fallback = pick(opts, 'use_median_speed_fallback', true);
     R2_fallback_threshold     = pick(opts, 'R2_fallback_threshold', 0.95);

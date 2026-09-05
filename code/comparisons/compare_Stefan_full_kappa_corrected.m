@@ -2,14 +2,14 @@ function compare_Stefan_full_kappa_corrected()
 % compare_Stefan_full_kappa_corrected
 %
 % Compare the full two-species PDE with the reduced Stefan-type travelling
-% wave model using the corrected effective Stefan parameter.
+% wave model using the original competition parameter gamma as the
+% horizontal axis.
 %
 % Convention used here:
-%   The reduced Stefan-type curve is the phase-plane curve
-%       kappa = -c/W(0;c).
-%   The full two-species speed is c = dL/dt, and its horizontal coordinate
-%   is computed from
-%       kappa_corrected = 2*gamma*c^2/(2*c^2 + D).
+%   The corrected reduced Stefan-type curve is the phase-plane curve
+%       gamma = -(c + D/(2c))/W(0;c).
+%   The leading-order reduced Stefan-type curve is
+%       gamma = -c/W(0;c).
 
     clearvars -except ans;
     clc;
@@ -19,18 +19,18 @@ function compare_Stefan_full_kappa_corrected()
     %  USER PARAMETERS
     % ============================================================
     D_fixed = 0.01;
-    a       = 0.30;
+    a       = 0.20;
     delta   = 1e-4;
 
     nFull = 31;
-    gamma_list = linspace(0.5, 25, nFull);
-    plot_positive_speed_only = true;
+    gamma_list = linspace(0.35, 1.6, nFull);
     min_R2_for_plot = -Inf;
 
     %% ============================================================
     %  REDUCED STEFAN-TYPE MODEL
     % ============================================================
     stefan = compute_stefan_curve(a, D_fixed);
+    stefan_leading = compute_leading_order_stefan_curve(a);
 
     %% ============================================================
     %  FULL TWO-SPECIES PDE
@@ -39,14 +39,16 @@ function compare_Stefan_full_kappa_corrected()
     opts.delta = delta;
     opts.a1 = a;
 
-    rows = nan(numel(gamma_list), 7);
+    rows = nan(numel(gamma_list), 12);
 
     fprintf('Full PDE vs reduced Stefan comparison\n');
     fprintf('  D = %.6g\n', D_fixed);
     fprintf('  a = %.6g\n', a);
-    fprintf('  x-axis: kappa_corrected = 2*gamma*c^2/(2*c^2 + D)\n');
+    fprintf('  input: gamma in [%.4g, %.4g]\n', min(gamma_list), max(gamma_list));
+    fprintf('  x-axis: input gamma\n');
     fprintf('  plotted two-species speed is c = dL/dt\n');
     fprintf('  full PDE points = %d\n\n', numel(gamma_list));
+    print_right_phase_diagnostics(D_fixed);
 
     for i = 1:numel(gamma_list)
         gamma = gamma_list(i);
@@ -57,27 +59,37 @@ function compare_Stefan_full_kappa_corrected()
         out = run_one_full_pde_case(D_fixed, gamma, opts);
 
         c_full = out.c;
-        kappa_full = corrected_kappa(gamma, c_full, D_fixed);
-        rows(i,:) = [D_fixed, gamma, kappa_full, c_full, out.slope, out.R2, out.nFit];
+        speedRatio = c_full / sqrt(D_fixed);
+        D_over_c2 = D_fixed / c_full.^2;
+        Vy0 = right_phase_interface_slope(c_full, D_fixed);
+        kappa_eff = effective_kappa(gamma, c_full, D_fixed, Vy0);
+        kappa_corrected_asymptotic = corrected_kappa_asymptotic(gamma, c_full, D_fixed);
+        rel_kappa_diff = abs(kappa_eff-kappa_corrected_asymptotic) ./ abs(kappa_eff);
+        rows(i,:) = [D_fixed, gamma, speedRatio, D_over_c2, Vy0, kappa_eff, ...
+            kappa_corrected_asymptotic, rel_kappa_diff, c_full, out.slope, out.R2, out.nFit];
 
-        fprintf('  c = dL/dt = %+.8e, kappa_corrected = %.8f, R2 = %.4f, nFit = %d, method = %s\n', ...
-            c_full, kappa_full, out.R2, out.nFit, out.fit_method);
+        fprintf(['  c = dL/dt = %+.8e, speedRatio = %.4g, D/c^2 = %.4g, ' ...
+            'Vy0 = %.8f, kappa_eff = %.8f, kappa_asymp = %.8f, rel diff = %.4g, ' ...
+            'R2 = %.4f, nFit = %d, method = %s\n'], ...
+            c_full, speedRatio, D_over_c2, Vy0, kappa_eff, ...
+            kappa_corrected_asymptotic, rel_kappa_diff, out.R2, out.nFit, out.fit_method);
     end
 
     Tfull = array2table(rows, 'VariableNames', ...
-        {'D','gamma','kappa_corrected','c','slopeL','R2','nFit'});
-    Tfull = sortrows(Tfull, 'kappa_corrected');
+        {'D','gamma','speedRatio','D_over_c2','Vy0','kappa_eff', ...
+         'kappa_corrected_asymptotic','rel_kappa_diff','c','slopeL','R2','nFit'});
+    Tfull = sortrows(Tfull, 'gamma');
 
-    Tplot = Tfull(isfinite(Tfull.kappa_corrected) & isfinite(Tfull.c), :);
-    if plot_positive_speed_only
-        Tplot = Tplot(Tplot.c > 0, :);
-    end
+    Tplot = Tfull(isfinite(Tfull.gamma) & isfinite(Tfull.c), :);
     if isfinite(min_R2_for_plot)
         Tplot = Tplot(Tplot.R2 >= min_R2_for_plot, :);
     end
+    if isempty(Tplot)
+        error('No finite full-PDE points remain for the selected gamma range.');
+    end
 
     %% ============================================================
-    %  PLOT: c versus corrected kappa
+    %  PLOT: c versus gamma
     % ============================================================
     fig = figure('Color', 'w', 'Position', [120 120 720 520]);
     ax = axes(fig);
@@ -85,22 +97,35 @@ function compare_Stefan_full_kappa_corrected()
     set(ax, 'Color', 'w', 'XColor', 'k', 'YColor', 'k', ...
         'GridColor', [0.65 0.65 0.65], 'MinorGridColor', [0.82 0.82 0.82]);
 
-    hFull = plot(ax, Tplot.kappa_corrected, Tplot.c, '-', ...
+    xFull = Tplot.gamma;
+    yFull = Tplot.c;
+
+    hFull = plot(ax, xFull, yFull, '-', ...
         'Color', [0.85 0.10 0.05], ...
         'LineWidth', 1.8, ...
         'DisplayName', 'Two-species model');
 
-    kappa_plot_max = 1.08 * max([Tplot.kappa_corrected; stefan.kappa(:)]);
-    stefan_plot = stefan.kappa <= kappa_plot_max;
+    gamma_stefan_plot = stefan.gamma;
+    c_stefan_plot_all = stefan.c;
+    gamma_leading_plot = stefan_leading.gamma;
+    c_leading_plot_all = stefan_leading.c;
+    gamma_plot_min = 0.95 * min(Tplot.gamma);
+    gamma_plot_max = 1.05 * max(Tplot.gamma);
+    stefan_plot = gamma_stefan_plot >= gamma_plot_min & ...
+        gamma_stefan_plot <= gamma_plot_max;
+    leading_plot = gamma_leading_plot >= gamma_plot_min & ...
+        gamma_leading_plot <= gamma_plot_max;
 
-    hStefan = plot(ax, stefan.kappa(stefan_plot), stefan.c(stefan_plot), '-', ...
+    hStefan = plot(ax, gamma_stefan_plot(stefan_plot), c_stefan_plot_all(stefan_plot), '--', ...
         'Color', [0.0 0.25 1.0], ...
         'LineWidth', 2.0, ...
         'DisplayName', 'Reduced Stefan-type model');
-
-    xlabel(ax, '$\kappa_{\mathrm{corrected}}$', 'Interpreter', 'latex', 'FontSize', 20);
+    hLeading = plot(ax, gamma_leading_plot(leading_plot), c_leading_plot_all(leading_plot), 'k--', ...
+        'LineWidth', 1.8, ...
+        'DisplayName', 'Reduced leading-order Stefan-type model');
+    xlabel(ax, '$\gamma$', 'Interpreter', 'latex', 'FontSize', 20);
     ylabel(ax, '$c$', 'Interpreter', 'latex', 'FontSize', 20);
-    lgd = legend(ax, [hFull, hStefan], 'Location', 'best', 'Interpreter', 'latex');
+    lgd = legend(ax, [hFull, hStefan, hLeading], 'Location', 'best', 'Interpreter', 'latex');
     lgd.FontSize = 12;
     lgd.Color = 'w';
     lgd.TextColor = 'k';
@@ -109,8 +134,9 @@ function compare_Stefan_full_kappa_corrected()
     box(ax, 'on');
     set(ax, 'FontSize', 12, 'TickLabelInterpreter', 'latex');
 
-    xlim(ax, [0, kappa_plot_max]);
-    ylim(ax, [min([-0.05; Tplot.c(:)]), 1.05*max([stefan.c(:); Tplot.c(:); 0.05])]);
+    xlim(ax, [min(xFull), max(xFull)]);
+    ylim(ax, [min([-0.05; yFull(:)]), ...
+        1.05*max([c_stefan_plot_all(stefan_plot); yFull(:); 0.05])]);
 end
 
 %% ========================================================================
@@ -119,7 +145,7 @@ end
 function opts = default_full_pde_options()
     opts = struct();
     opts.delta = 1e-4;
-    opts.a1    = 0.30;
+    opts.a1    = 0.20;
     opts.A     = 0.5;
 
     opts.Xmax = 120;
@@ -306,43 +332,183 @@ end
 %% ========================================================================
 %  REDUCED STEFAN CURVE
 % ========================================================================
-function stefan = compute_stefan_curve(a, ~)
+function stefan = compute_stefan_curve(a, D)
+% Corrected Stefan condition:
+%   W(0) = -(c + D/(2c))/kappa,
+% hence
+%   kappa = -(c + D/(2c))/W(0;c).
+    stefan = compute_stefan_curve_core(a, D, true);
+end
+
+function stefan = compute_leading_order_stefan_curve(a)
+% Leading-order Stefan condition:
+%   W(0) = -c/kappa, hence kappa = -c/W(0;c).
+    stefan = compute_stefan_curve_core(a, [], false);
+end
+
+function stefan = compute_stefan_curve_core(a, D, useCorrection)
     F = @(U) U .* (1 - U) .* (U - a);
     cStar = sqrt(2) * (0.5 - a);
 
     cVals = [linspace(1e-4, 0.98*cStar, 180), ...
         cStar - logspace(log10(0.02*cStar), -8, 120)].';
     cVals = unique(cVals, 'stable');
-    cVals = cVals(cVals > 0 & cVals < cStar);
+    if useCorrection
+        cMin = max(0.01, 0.05*sqrt(D));
+    else
+        cMin = 1e-4;
+    end
+    cVals = cVals(cVals >= cMin & cVals < cStar);
 
     kappaVals = nan(size(cVals));
     for i = 1:numel(cVals)
         Wfront = front_slope_from_phase_plane(F, cVals(i));
-        kappaVals(i) = -cVals(i) / Wfront;
+        if useCorrection
+            kappaVals(i) = -(cVals(i) + D./(2*cVals(i))) / Wfront;
+        else
+            kappaVals(i) = -cVals(i) / Wfront;
+        end
     end
 
     keep = isfinite(kappaVals) & kappaVals > 0 & isfinite(cVals);
     kappaVals = kappaVals(keep);
     cVals = cVals(keep);
 
-    [kappaVals, idx] = sort(kappaVals);
-    cVals = cVals(idx);
+    if useCorrection && numel(kappaVals) >= 3
+        % The corrected condition is folded as a kappa(c) curve because of
+        % the singular D/(2c) term.  For comparison with the positive-speed
+        % reduced Stefan branch, keep the upper branch after the fold.
+        [~, iFold] = min(kappaVals);
+        kappaVals = kappaVals(iFold:end);
+        cVals = cVals(iFold:end);
+    else
+        [kappaVals, idx] = sort(kappaVals);
+        cVals = cVals(idx);
+    end
+
+    [kappaVals, ia] = unique(kappaVals, 'stable');
+    cVals = cVals(ia);
 
     stefan = struct();
+    stefan.gamma = kappaVals;
     stefan.kappa = kappaVals;
     stefan.c = cVals;
 end
 
-function kappa = corrected_kappa(gamma, c, D)
+function kappa = effective_kappa(gamma, c, D, Vy0)
+    if c <= 0 || D <= 0 || ~isfinite(Vy0) || Vy0 <= 0
+        kappa = NaN;
+        return;
+    end
+    kappa = gamma .* c ./ (sqrt(D) .* Vy0);
+end
+
+function kappa = corrected_kappa_asymptotic(gamma, c, D)
     c2 = c.^2;
     kappa = 2 .* gamma .* c2 ./ (2 .* c2 + D);
+end
+
+function Vy0 = right_phase_interface_slope(c, D)
+    if D <= 0 || c < 0 || ~isfinite(c) || ~isfinite(D)
+        Vy0 = NaN;
+        return;
+    end
+
+    speedRatio = c / sqrt(D);
+    yMax = 25;
+    if exist('bvp4c', 'file') == 2
+        yMesh = linspace(0, yMax, 180);
+        guess = @(y) [1-exp(-y); exp(-y)];
+        solinit = bvpinit(yMesh, guess);
+        opts = bvpset('RelTol', 1e-7, 'AbsTol', 1e-9, 'NMax', 8000);
+        sol = bvp4c(@(y,Y) right_phase_bvp_ode(y, Y, speedRatio), ...
+            @right_phase_bvp_bc, solinit, opts);
+        Y0 = deval(sol, 0);
+        Vy0 = Y0(2);
+    else
+        Vy0 = right_phase_interface_slope_shooting(speedRatio, yMax);
+    end
+
+    if ~isreal(Vy0) || ~isfinite(Vy0) || Vy0 <= 0
+        Vy0 = NaN;
+    end
+end
+
+function dYdy = right_phase_bvp_ode(~, Y, speedRatio)
+    V = Y(1);
+    Vy = Y(2);
+    dYdy = [Vy; -speedRatio.*Vy - V.*(1-V)];
+end
+
+function res = right_phase_bvp_bc(Ya, Yb)
+    res = [Ya(1); Yb(1)-1];
+end
+
+function Vy0 = right_phase_interface_slope_shooting(speedRatio, yMax)
+    residual = @(s) right_phase_shoot_residual(s, speedRatio, yMax);
+    upper = max(10, 2*speedRatio + 2);
+    bracket = [1e-8, upper];
+    fL = residual(bracket(1));
+    fR = residual(bracket(2));
+    expandCount = 0;
+    while isfinite(fL) && isfinite(fR) && fL*fR > 0 && expandCount < 10
+        bracket(2) = 2*bracket(2);
+        fR = residual(bracket(2));
+        expandCount = expandCount + 1;
+    end
+    if ~isfinite(fL) || ~isfinite(fR) || fL*fR > 0
+        Vy0 = NaN;
+        return;
+    end
+    Vy0 = fzero(residual, bracket);
+end
+
+function r = right_phase_shoot_residual(Vy0, speedRatio, yMax)
+    ode = @(~,Y) [Y(2); -speedRatio.*Y(2) - Y(1).*(1-Y(1))];
+    opts = odeset('RelTol', 1e-8, 'AbsTol', 1e-10);
+    [~, Y] = ode45(ode, [0 yMax], [0; Vy0], opts);
+    r = Y(end,1) - 1;
+end
+
+function print_right_phase_diagnostics(D)
+    fprintf('Right-phase BVP diagnostics\n');
+    cZero = 0;
+    Vy0Zero = right_phase_interface_slope(cZero, D);
+    fprintf('  c = 0: Vy0 = %.8f, 1/sqrt(3) = %.8f, abs diff = %.3e\n', ...
+        Vy0Zero, 1/sqrt(3), abs(Vy0Zero-1/sqrt(3)));
+
+    cSmall = 1e-4 * sqrt(D);
+    Vy0Small = right_phase_interface_slope(cSmall, D);
+    fprintf('  small c/sqrt(D) = %.3e: Vy0 = %.8f, abs diff from 1/sqrt(3) = %.3e\n', ...
+        cSmall/sqrt(D), Vy0Small, abs(Vy0Small-1/sqrt(3)));
+
+    cLargeVals = sqrt(D) * [5, 10, 20];
+    relDiffVals = nan(size(cLargeVals));
+    for j = 1:numel(cLargeVals)
+        cLarge = cLargeVals(j);
+        Vy0Large = right_phase_interface_slope(cLarge, D);
+        fluxBvp = sqrt(D) * Vy0Large;
+        fluxAsymptotic = cLarge + D/(2*cLarge);
+        relFluxDiff = abs(fluxBvp-fluxAsymptotic)/abs(fluxBvp);
+        kEffUnitGamma = effective_kappa(1, cLarge, D, Vy0Large);
+        kAsympUnitGamma = corrected_kappa_asymptotic(1, cLarge, D);
+        relKappaDiff = abs(kEffUnitGamma-kAsympUnitGamma)/abs(kEffUnitGamma);
+        relDiffVals(j) = relKappaDiff;
+        fprintf(['  large c/sqrt(D) = %.3g: sqrt(D)*Vy0 = %.8f, ' ...
+            'c+D/(2c) = %.8f, rel flux diff = %.3e, D/c^2 = %.3e, ' ...
+            'rel kappa diff = %.3e\n'], ...
+            cLarge/sqrt(D), fluxBvp, fluxAsymptotic, relFluxDiff, ...
+            D/cLarge.^2, relKappaDiff);
+    end
+    fprintf('  rel kappa diff trend as D/c^2 decreases: %.3e -> %.3e -> %.3e\n\n', ...
+        relDiffVals(1), relDiffVals(2), relDiffVals(3));
 end
 
 function Wfront = front_slope_from_phase_plane(F, c)
     Ustart = 1 - 1e-7;
     Uend = 1e-8;
     Uspan = linspace(Ustart, Uend, 2500).';
-    opts = odeset('RelTol', 1e-9, 'AbsTol', 1e-12, 'MaxStep', 1e-3);
+    opts = odeset('RelTol', 1e-10, 'AbsTol', 1e-13, 'MaxStep', 5e-4);
 
     Fp1 = (F(1) - F(1 - 1e-6)) / 1e-6;
     lambda = (-c + sqrt(c^2 - 4*Fp1)) / 2;

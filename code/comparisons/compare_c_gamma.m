@@ -13,7 +13,8 @@ function compare_c_gamma()
     delta = 1e-4;
 
     D_stefan = 0.01;
-    gamma_stefan = linspace(0.5, 1.6, 17);
+    gamma_stefan = unique([linspace(0.10, 0.50, 13), ...
+        linspace(0.55, 1.90, 20)]);
     stefan = compute_stefan_curve(a, D_stefan);
 
     optsStefan = default_full_pde_options();
@@ -49,7 +50,28 @@ function compare_c_gamma()
     optsFlux.use_median_speed_fallback = true;
     Tflux = compute_full_pde_curve(D_flux, gamma_flux, optsFlux, 'Flux');
 
-    plot_comparisons(Tstefan, stefan.large, Tflux, flux, D_stefan, D_flux);
+    D_error = 0.01;
+    gamma_flux_error = linspace(0.55, 9.00, 31) * eta0 * sqrt(D_error);
+    flux_error = compute_flux_curves(a, D_error);
+    optsFluxError = optsFlux;
+    optsFluxError.Xmax = 120;
+    optsFluxError.Nx = 6000;
+    optsFluxError.tEnd = 160;
+    optsFluxError.NtOut = 801;
+    optsFluxError.gap = 60;
+    optsFluxError.wIC = 0.01;
+    optsFluxError.t_fit_start = 105;
+    optsFluxError.fit_t_min = 105;
+    optsFluxError.fit_t_max = 135;
+    optsFluxError.interface_for_speed = 'ulevel';
+    optsFluxError.u_level = 0.05;
+    optsFluxError.MaxStep = 0.25;
+    optsFluxError.use_median_speed_fallback = false;
+    TfluxError = compute_full_pde_curve(D_error, gamma_flux_error, ...
+        optsFluxError, 'Flux error D=0.01');
+
+    plot_comparisons(Tstefan, stefan, Tflux, flux, D_stefan, ...
+        TfluxError, flux_error, D_error);
 end
 
 function Tfull = compute_full_pde_curve(D, gammaList, opts, label)
@@ -70,24 +92,11 @@ function Tfull = compute_full_pde_curve(D, gammaList, opts, label)
     Tfull = sortrows(Tfull, 'gamma');
 end
 
-function plot_comparisons(Tstefan, stefan, Tflux, flux, Dstefan, Dflux)
+function plot_comparisons(Tstefan, stefan, Tflux, flux, Dstefan, ...
+    TfluxError, fluxError, Derror)
     red = [0.85 0.10 0.05];
     blue = [0.00 0.25 1.00];
     black = [0.00 0.00 0.00];
-
-    [gammaStefanSmooth, cStefanFullSmooth] = smooth_full_curve(Tstefan);
-    stefanMask = stefan.gamma >= min(Tstefan.gamma) & ...
-        stefan.gamma <= max(Tstefan.gamma);
-
-    fig1 = figure('Color', 'w', 'Position', [80 120 720 520]);
-    ax1 = formatted_axes(fig1);
-    hFull1 = plot(ax1, gammaStefanSmooth, cStefanFullSmooth, '-', ...
-        'Color', red, 'LineWidth', 1.8);
-    hReduced1 = plot(ax1, stefan.gamma(stefanMask), stefan.c(stefanMask), '--', ...
-        'Color', blue, 'LineWidth', 2.0);
-    finish_axes(ax1, [hFull1, hReduced1], ...
-        {'Two-species model', 'Reduced Stefan-type model'});
-    xlim(ax1, [min(Tstefan.gamma), max(Tstefan.gamma)]);
 
     [gammaFluxSmooth, cFluxFullSmooth] = smooth_full_curve(Tflux);
     fluxMask = flux.corrected.gamma >= min(Tflux.gamma) & ...
@@ -108,49 +117,166 @@ function plot_comparisons(Tstefan, stefan, Tflux, flux, Dstefan, Dflux)
          'Reduced leading-order flux-type model'});
     xlim(ax2, [min(Tflux.gamma), max(Tflux.gamma)]);
 
-    cStefanAtFull = interp1(stefan.gamma, stefan.c, Tstefan.gamma, 'pchip', NaN);
-    cFluxAtFull = interp1(flux.corrected.gamma, flux.corrected.c, ...
-        Tflux.gamma, 'pchip', NaN);
-    cLeadingAtFull = interp1(flux.leading.gamma, flux.leading.c, ...
-        Tflux.gamma, 'pchip', NaN);
-
+    cStefanAtFull = interp1(stefan.large.gamma, stefan.large.c, ...
+        Tstefan.gamma, 'pchip', NaN);
     errStefan = abs(cStefanAtFull - Tstefan.c);
-    errFlux = abs(cFluxAtFull - Tflux.c);
-    errLeading = abs(cLeadingAtFull - Tflux.c);
+
+    xStefanErr = Tstefan.c ./ sqrt(Dstefan);
+    print_stefan_error_filter_diagnostics(Tstefan, Dstefan, ...
+        cStefanAtFull, errStefan);
+    [xStefanErr, errStefan] = sort_error_curve(xStefanErr, errStefan);
+    cFluxAtFull = interp1(fluxError.corrected.gamma, fluxError.corrected.c, ...
+        TfluxError.gamma, 'pchip', NaN);
+    errFlux = abs(cFluxAtFull - TfluxError.c);
+    [xFluxErr, errFlux] = sort_error_curve(TfluxError.c ./ sqrt(Derror), ...
+        errFlux);
+    [xStefanPlot, errStefanPlot] = smooth_error_curve_for_plot( ...
+        xStefanErr, errStefan);
+    [xFluxPlot, errFluxPlot] = smooth_error_curve_for_plot(xFluxErr, errFlux);
 
     fig3 = figure('Color', 'w', 'Position', [460 680 720 520]);
     ax3 = formatted_axes(fig3);
-    hErrStefan = plot(ax3, NaN, NaN, '-', ...
+    hErrStefan = plot(ax3, xStefanPlot, errStefanPlot, '-', ...
         'Color', blue, 'LineWidth', 1.8);
-    hErrFlux = plot(ax3, Tflux.gamma, errFlux, '-', ...
+    hErrFlux = plot(ax3, xFluxPlot, errFluxPlot, '-', ...
         'Color', red, 'LineWidth', 1.8);
-    hErrLeading = plot(ax3, Tflux.gamma, errLeading, '--', ...
-        'Color', black, 'LineWidth', 1.8);
-    xlabel(ax3, '$\gamma$', 'Interpreter', 'latex', 'FontSize', 20);
-    ylabel(ax3, '$|c_{\mathrm{reduced}}-c_{\mathrm{two}}|$', ...
+    xCross = find_error_curve_intersection(xStefanErr, errStefan, ...
+        xFluxErr, errFlux);
+    if isfinite(xCross)
+        xline(ax3, xCross, 'k--', 'LineWidth', 1.2, ...
+            'HandleVisibility', 'off');
+    end
+    xlabel(ax3, '$c_{\mathrm{full}}/\sqrt{D}$', ...
         'Interpreter', 'latex', 'FontSize', 20);
-    lgd = legend(ax3, [hErrStefan, hErrFlux, hErrLeading], ...
-        {sprintf('Stefan-type error ($D=%.2g$)', Dstefan), ...
-         sprintf('Corrected flux-type error ($D=%.2g$)', Dflux), ...
-         sprintf('Leading-order flux-type error ($D=%.2g$)', Dflux)}, ...
+    ylabel(ax3, '$|c_{\mathrm{reduced}}-c_{\mathrm{full}}|$', ...
+        'Interpreter', 'latex', 'FontSize', 20);
+    lgd = legend(ax3, [hErrStefan, hErrFlux], ...
+        {'Stefan-type error', ...
+         'Corrected flux-type error'}, ...
         'Location', 'best', 'Interpreter', 'latex');
     format_legend(lgd);
     grid(ax3, 'on');
     box(ax3, 'on');
+    xlim(ax3, [0, 1.05*max([xStefanPlot(:); xFluxPlot(:); 1])]);
+    ylim(ax3, [0, 1.10*max([errStefanPlot(:); errFluxPlot(:); eps])]);
+    if isfinite(xCross)
+        yl = ylim(ax3);
+        text(ax3, xCross, yl(1), sprintf('$%.2f$', xCross), ...
+            'Interpreter', 'latex', 'FontSize', 12, ...
+            'HorizontalAlignment', 'center', ...
+            'VerticalAlignment', 'top', ...
+            'Color', 'k', 'Clipping', 'off');
+    end
 
-    insetMask = Tstefan.gamma >= 0.9 & Tstefan.gamma <= 1.5 & ...
-        isfinite(errStefan);
-    axInset = axes(fig3, 'Position', [0.20 0.56 0.30 0.30]);
-    hold(axInset, 'on');
-    plot(axInset, Tstefan.gamma(insetMask), errStefan(insetMask), '-', ...
-        'Color', blue, 'LineWidth', 1.6);
-    xlabel(axInset, '$\gamma$', 'Interpreter', 'latex', 'FontSize', 10);
-    ylabel(axInset, '$|\Delta c|$', 'Interpreter', 'latex', 'FontSize', 10);
-    xlim(axInset, [0.9 1.5]);
-    grid(axInset, 'on');
-    box(axInset, 'on');
-    set(axInset, 'Color', 'w', 'XColor', 'k', 'YColor', 'k', ...
-        'FontSize', 9, 'TickLabelInterpreter', 'latex');
+end
+
+function [xPlot, errPlot] = smooth_error_curve_for_plot(x, err)
+    x = x(:);
+    err = err(:);
+    keep = isfinite(x) & isfinite(err);
+    x = x(keep);
+    err = err(keep);
+    if numel(x) < 4
+        xPlot = x;
+        errPlot = err;
+        return;
+    end
+
+    [x, idx] = sort(x);
+    err = err(idx);
+    [x, uniqueIdx] = unique(x, 'stable');
+    err = err(uniqueIdx);
+    if numel(x) < 4
+        xPlot = x;
+        errPlot = err;
+        return;
+    end
+
+    xPlot = linspace(min(x), max(x), 400).';
+    errPlot = interp1(x, err, xPlot, 'pchip');
+    errPlot = max(errPlot, 0);
+end
+
+function xCross = find_error_curve_intersection(x1, y1, x2, y2)
+    xCross = NaN;
+    x1 = x1(:);
+    y1 = y1(:);
+    x2 = x2(:);
+    y2 = y2(:);
+
+    keep1 = isfinite(x1) & isfinite(y1);
+    keep2 = isfinite(x2) & isfinite(y2);
+    x1 = x1(keep1);
+    y1 = y1(keep1);
+    x2 = x2(keep2);
+    y2 = y2(keep2);
+    if numel(x1) < 2 || numel(x2) < 2
+        return;
+    end
+
+    xMin = max(min(x1), min(x2));
+    xMax = min(max(x1), max(x2));
+    if xMin >= xMax
+        return;
+    end
+
+    xGrid = linspace(xMin, xMax, 1000).';
+    diffErr = interp1(x1, y1, xGrid, 'pchip') - ...
+        interp1(x2, y2, xGrid, 'pchip');
+    idx = find(diffErr(1:end-1).*diffErr(2:end) <= 0, 1, 'first');
+    if isempty(idx)
+        return;
+    end
+
+    xPair = xGrid(idx:idx+1);
+    dPair = diffErr(idx:idx+1);
+    if abs(dPair(1)) < eps
+        xCross = xPair(1);
+    elseif abs(dPair(2)) < eps
+        xCross = xPair(2);
+    else
+        xCross = interp1(dPair, xPair, 0, 'linear');
+    end
+end
+
+function [x, err] = sort_error_curve(x, err)
+    x = x(:);
+    err = err(:);
+    keep = isfinite(x) & x > 0 & isfinite(err);
+    x = x(keep);
+    err = err(keep);
+    [x, idx] = sort(x);
+    err = err(idx);
+end
+
+function print_stefan_error_filter_diagnostics(Tstefan, D, cReduced, err)
+    gamma = Tstefan.gamma(:);
+    cFull = Tstefan.c(:);
+    xNorm = cFull ./ sqrt(D);
+
+    badC = ~isfinite(cFull) | cFull <= 0;
+    badReduced = ~badC & ~isfinite(cReduced(:));
+    badErr = ~badC & isfinite(cReduced(:)) & ~isfinite(err(:));
+    keep = isfinite(xNorm) & xNorm > 0 & isfinite(err(:));
+
+    fprintf('\n===== Stefan error filtering diagnostics =====\n');
+    fprintf('D = %.8g\n', D);
+    fprintf('total points       = %d\n', numel(gamma));
+    fprintf('kept points        = %d\n', nnz(keep));
+    fprintf('filtered c<=0/NaN  = %d\n', nnz(badC));
+    fprintf('filtered corrected reduced NaN = %d\n', nnz(badReduced));
+    fprintf('filtered corrected err NaN     = %d\n', nnz(badErr));
+
+    bad = ~keep;
+    if any(bad)
+        fprintf('Filtered Stefan points:\n');
+        fprintf('   gamma          c_full        c/sqrt(D)      c_corrected\n');
+        for i = find(bad).'
+            fprintf('   %.8g   %+.8e   %+.8e   %+.8e\n', ...
+                gamma(i), cFull(i), xNorm(i), cReduced(i));
+        end
+    end
+    fprintf('=============================================\n\n');
 end
 
 function ax = formatted_axes(fig)
@@ -185,6 +311,91 @@ function [gammaSmooth, cSmooth] = smooth_full_curve(T)
         gammaSmooth = T.gamma;
         cSmooth = T.c;
     end
+end
+
+function cQuery = interp_reduced_c_by_kappa(kappa, c, kappaQuery)
+    keep = isfinite(kappa) & isfinite(c);
+    kappa = kappa(keep);
+    c = c(keep);
+    [kappa, idx] = sort(kappa);
+    c = c(idx);
+    [kappa, uniqueIdx] = unique(kappa, 'stable');
+    c = c(uniqueIdx);
+    cQuery = interp1(kappa, c, kappaQuery, 'pchip', NaN);
+end
+
+function kappaEff = effective_stefan_kappa(gamma, c, D)
+    gamma = gamma(:);
+    c = c(:);
+    kappaEff = nan(size(c));
+    for i = 1:numel(c)
+        if c(i) <= 0 || D <= 0 || ~isfinite(c(i)) || ~isfinite(gamma(i))
+            continue;
+        end
+        Vy0 = right_phase_interface_slope(c(i), D);
+        if isfinite(Vy0) && Vy0 > 0
+            kappaEff(i) = gamma(i) .* c(i) ./ (sqrt(D) .* Vy0);
+        end
+    end
+end
+
+function Vy0 = right_phase_interface_slope(c, D)
+    if D <= 0 || c < 0 || ~isfinite(c) || ~isfinite(D)
+        Vy0 = NaN;
+        return;
+    end
+
+    speedRatio = c / sqrt(D);
+    yMax = 25;
+    if exist('bvp4c', 'file') == 2
+        yMesh = linspace(0, yMax, 180);
+        guess = @(y) [1-exp(-y); exp(-y)];
+        solinit = bvpinit(yMesh, guess);
+        opts = bvpset('RelTol', 1e-7, 'AbsTol', 1e-9, 'NMax', 8000);
+        sol = bvp4c(@(y,Y) right_phase_bvp_ode(y, Y, speedRatio), ...
+            @right_phase_bvp_bc, solinit, opts);
+        Y0 = deval(sol, 0);
+        Vy0 = Y0(2);
+    else
+        Vy0 = right_phase_interface_slope_shooting(speedRatio, yMax);
+    end
+
+    if ~isreal(Vy0) || ~isfinite(Vy0) || Vy0 <= 0
+        Vy0 = NaN;
+    end
+end
+
+function dYdy = right_phase_bvp_ode(~, Y, speedRatio)
+    V = Y(1);
+    Vy = Y(2);
+    dYdy = [Vy; -speedRatio .* Vy - V .* (1 - V)];
+end
+
+function res = right_phase_bvp_bc(Ya, Yb)
+    res = [Ya(1); Yb(1)-1];
+end
+
+function Vy0 = right_phase_interface_slope_shooting(speedRatio, yMax)
+    residual = @(s) right_phase_shoot_residual(s, speedRatio, yMax);
+    sGrid = logspace(-4, 2, 80);
+    rGrid = nan(size(sGrid));
+    for i = 1:numel(sGrid)
+        rGrid(i) = residual(sGrid(i));
+    end
+    idx = find(isfinite(rGrid(1:end-1)) & isfinite(rGrid(2:end)) & ...
+        rGrid(1:end-1).*rGrid(2:end) <= 0, 1, 'first');
+    if isempty(idx)
+        Vy0 = NaN;
+        return;
+    end
+    Vy0 = fzero(residual, [sGrid(idx), sGrid(idx+1)]);
+end
+
+function r = right_phase_shoot_residual(Vy0, speedRatio, yMax)
+    odeOpts = odeset('RelTol', 1e-8, 'AbsTol', 1e-10);
+    [~, Y] = ode45(@(y,Y) right_phase_bvp_ode(y, Y, speedRatio), ...
+        [0 yMax], [0; Vy0], odeOpts);
+    r = Y(end,1) - 1;
 end
 
 %% ========================================================================
@@ -417,10 +628,12 @@ function stefan = compute_stefan_curve(a, D)
     [~, iFold] = min(gammaVals);
     small = make_branch(gammaVals(1:iFold), cVals(1:iFold), kappaVals(1:iFold));
     large = make_branch(gammaVals(iFold:end), cVals(iFold:end), kappaVals(iFold:end));
+    leading = make_branch(kappaVals, cVals, kappaVals);
 
     stefan = struct();
     stefan.small = small;
     stefan.large = large;
+    stefan.leading = leading;
     stefan.gamma = [small.gamma; NaN; large.gamma];
     stefan.c = [small.c; NaN; large.c];
     stefan.kappa = [small.kappa; NaN; large.kappa];
@@ -428,10 +641,13 @@ end
 
 function branch = make_branch(gammaVals, cVals, kappaVals)
     [gammaVals, idx] = sort(gammaVals);
+    cVals = cVals(idx);
+    kappaVals = kappaVals(idx);
+    [gammaVals, uniqueIdx] = unique(gammaVals, 'stable');
     branch = struct();
     branch.gamma = gammaVals;
-    branch.c = cVals(idx);
-    branch.kappa = kappaVals(idx);
+    branch.c = cVals(uniqueIdx);
+    branch.kappa = kappaVals(uniqueIdx);
 end
 
 function Wfront = front_slope_from_phase_plane(F, c)

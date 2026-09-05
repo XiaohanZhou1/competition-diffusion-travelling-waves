@@ -2,9 +2,12 @@ function plot_stefan_corrected_kappa_asymptotics()
 % plot_stefan_corrected_kappa_asymptotics
 %
 % Compare numerical travelling-wave speeds with the small-c and large-c
-% asymptotic predictions for the reduced Stefan-type model.
+% asymptotic predictions for the reduced leading-order Stefan-type model.
+% The variable kappa is an effective Stefan parameter. The small-c curve
+% shown here is the leading-order Stefan curve after the D-dependent
+% right-phase interfacial correction has been neglected.
 %
-% The small-c expansion uses gamma = kappa and
+% The small-c expansion uses
 %     -c/kappa ~ W0(0) + c W1(0).
 % The large-c expansion uses the inner-front scaling
 %     kappa ~ -c/(psi0(0) epsilon^p), epsilon = c_* - c.

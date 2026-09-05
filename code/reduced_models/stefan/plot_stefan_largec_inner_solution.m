@@ -3,6 +3,8 @@ function plot_stefan_largec_inner_solution()
 %
 % Inner solution for the leading-order Stefan travelling-wave problem in
 % the large-c limit c -> c_*^-.
+% The finite-D right-phase interfacial correction is neglected in this
+% leading-order Stefan calculation.
 
     clearvars -except ans;
     clc;

@@ -2,7 +2,9 @@ function plot_stefan_smallc_asymptotics()
 % plot_stefan_smallc_asymptotics
 %
 % Compare the numerical phase-plane trajectory for the leading-order
-% Stefan travelling-wave problem with the small-c asymptotic expansion
+% Stefan travelling-wave problem with the small-c asymptotic expansion.
+% This figure neglects the D-dependent right-phase interfacial correction
+% and therefore concerns the leading-order Stefan phase-plane problem
 %
 %     W(U) = W0(U) + c W1(U) + ...
 %
@@ -30,12 +32,12 @@ function plot_stefan_smallc_asymptotics()
     W_two = W0 + c * W1;
 
     W_at_0 = endpoint_slope(a, c);
-    gamma_stefan = -c / W_at_0;
+    kappa_stefan = -c / W_at_0;
 
     fprintf('Small-c Stefan phase-plane comparison\n');
     fprintf('  a = %.6g, c = %.6g\n', a, c);
     fprintf('  Numerical W(0) = %.8f\n', W_at_0);
-    fprintf('  Stefan gamma = -c/W(0) = %.8f\n', gamma_stefan);
+    fprintf('  Effective Stefan parameter kappa = -c/W(0) = %.8f\n', kappa_stefan);
 
     z_num = travelling_wave_coordinate(U, W_num);
     z_one = travelling_wave_coordinate(U, W0);

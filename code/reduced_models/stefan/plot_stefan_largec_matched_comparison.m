@@ -2,7 +2,8 @@ function plot_stefan_largec_matched_comparison()
 % plot_stefan_largec_matched_comparison
 %
 % Matched large-c comparison for the leading-order Stefan travelling-wave
-% problem. This follows the plotting strategy of the Allee-Stefan
+% problem, with the finite-D right-phase interfacial correction neglected.
+% This follows the plotting strategy of the Allee-Stefan
 % TWCompare.m script. This version keeps only the singular/singular
 % comparison: the black curve is the outer expansion W0 + epsilon W1 and
 % the blue front layer uses the singular inner matching branch.
